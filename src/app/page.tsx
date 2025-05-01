@@ -1,10 +1,15 @@
 "use client"
 
 import { Poppins } from "next/font/google";
-import { useState } from "react";
+import dynamic from 'next/dynamic';
+import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import Select from 'react-select';
 import * as ToggleGroup from '@radix-ui/react-toggle-group';
+import "leaflet/dist/leaflet.css";
+import ReactDOMServer from 'react-dom/server';
+import { HiLocationMarker } from "react-icons/hi";
+
 
 const poppins = Poppins({
   display: 'swap',
@@ -42,48 +47,49 @@ const skillDemandOverTime = [
   { month: 'Dec', Python: 370, JavaScript: 360, Figma: 275, React: 370 }
 ];
 
-const skillDemandByLocation = [
+const skillDemandByLocation: SkillLocationData[] = [
   {
     skill: 'Python',
     demandByLocation: [
-      { location: 'USA', demand: 500 },
-      { location: 'India', demand: 400 },
-      { location: 'Germany', demand: 300 },
-      { location: 'UK', demand: 250 },
-      { location: 'Australia', demand: 150 }
-    ]
+      { location: 'USA', demand: 500, coords: [37.0902, -95.7129] },
+      { location: 'India', demand: 400, coords: [20.5937, 78.9629] },
+      { location: 'Germany', demand: 300, coords: [51.1657, 10.4515] },
+      { location: 'UK', demand: 250, coords: [55.3781, -3.4360] },
+      { location: 'Australia', demand: 150, coords: [-25.2744, 133.7751] },
+    ],
   },
   {
     skill: 'JavaScript',
     demandByLocation: [
-      { location: 'USA', demand: 600 },
-      { location: 'India', demand: 500 },
-      { location: 'Germany', demand: 400 },
-      { location: 'UK', demand: 350 },
-      { location: 'Australia', demand: 200 }
-    ]
+      { location: 'USA', demand: 600, coords: [37.0902, -95.7129] },
+      { location: 'India', demand: 500, coords: [20.5937, 78.9629] },
+      { location: 'Germany', demand: 400, coords: [51.1657, 10.4515] },
+      { location: 'UK', demand: 350, coords: [55.3781, -3.4360] },
+      { location: 'Australia', demand: 200, coords: [-25.2744, 133.7751] },
+    ],
   },
   {
     skill: 'Figma',
     demandByLocation: [
-      { location: 'USA', demand: 250 },
-      { location: 'India', demand: 180 },
-      { location: 'Germany', demand: 130 },
-      { location: 'UK', demand: 150 },
-      { location: 'Australia', demand: 80 }
-    ]
+      { location: 'USA', demand: 250, coords: [37.0902, -95.7129] },
+      { location: 'India', demand: 180, coords: [20.5937, 78.9629] },
+      { location: 'Germany', demand: 130, coords: [51.1657, 10.4515] },
+      { location: 'UK', demand: 150, coords: [55.3781, -3.4360] },
+      { location: 'Australia', demand: 80, coords: [-25.2744, 133.7751] },
+    ],
   },
   {
     skill: 'React',
     demandByLocation: [
-      { location: 'USA', demand: 700 },
-      { location: 'India', demand: 600 },
-      { location: 'Germany', demand: 450 },
-      { location: 'UK', demand: 400 },
-      { location: 'Australia', demand: 250 }
-    ]
-  }
+      { location: 'USA', demand: 700, coords: [37.0902, -95.7129] },
+      { location: 'India', demand: 600, coords: [20.5937, 78.9629] },
+      { location: 'Germany', demand: 450, coords: [51.1657, 10.4515] },
+      { location: 'UK', demand: 400, coords: [55.3781, -3.4360] },
+      { location: 'Australia', demand: 250, coords: [-25.2744, 133.7751] },
+    ],
+  },
 ];
+
 
 const relatedSkillsWithDemand = [
   {
@@ -138,8 +144,10 @@ const SkillDemandOverTimeChart: React.FC<{ data?: any }> = ({ data = skillDemand
   };
 
   return (
-    <div className="bg-[#2f2f48] p-6 rounded-2xl shadow-md">
-      <h2 className="text-[#c8de67] text-xl font-semibold mb-4">Skill Demand Over Time</h2>
+    <div className="h-full">
+      <h2 className="text-[#C8DE67] text-2xl md:text-3xl font-bold mb-6 tracking-tight">
+        📈 Emerging Skills Over Time
+      </h2>
       <ResponsiveContainer width="100%" height={400}>
         <LineChart data={data} margin={{ top: 20, right: 30, left: 10, bottom: 10 }}>
           <CartesianGrid stroke="#2F2F40" strokeDasharray="3 3" />
@@ -195,85 +203,113 @@ const getColorForSkill = (skill: string) => {
   }
 };
 
-const transformData = (skillDemandByLocation: any[]) => {
-  const locationMap: { [key: string]: any } = {};
 
-  skillDemandByLocation.forEach(({ skill, demandByLocation }) => {
-    demandByLocation.forEach(({ location, demand }: any) => {
-      if (!locationMap[location]) {
-        locationMap[location] = { location };
-      }
-      locationMap[location][skill] = demand;
-    });
-  });
-
-  return Object.values(locationMap);
+type SkillLocationData = {
+  skill: string;
+  demandByLocation: {
+    location: string;
+    demand: number;
+    coords: [number, number]; // [latitude, longitude]
+  }[];
 };
 
-const SkillDemandByLocationChart: React.FC<{ data?: any }> = ({
-  data = []
-}) => {
-  if (!data.length) return null;
+type Props = {
+  data: SkillLocationData[];
+};
 
-  const barData = transformData(data);
-  const skillKeys = data.map((d: any) => d.skill);
 
+const SkillDemandMap: React.FC<Props> = ({ data }) => {
+  const [isClient, setIsClient] = useState(false);
+  const [L, setLeaflet] = useState<any>(null);
+  const [icon, setIcon] = useState<any>(null);
+
+  // Dynamically import the React-Leaflet components
+  const MapContainer = dynamic(() => import('react-leaflet').then(mod => mod.MapContainer), { ssr: false });
+  const TileLayer = dynamic(() => import('react-leaflet').then(mod => mod.TileLayer), { ssr: false });
+  const Marker = dynamic(() => import('react-leaflet').then(mod => mod.Marker), { ssr: false });
+  const Popup = dynamic(() => import('react-leaflet').then(mod => mod.Popup), { ssr: false });  
+  useEffect(() => {     
+    setIsClient(true);
+  }, []);
+  
+  useEffect(() => {
+    setIsClient(true);
+
+    // Dynamically import Leaflet to prevent SSR window error
+    import('leaflet').then((leaflet) => {
+      setLeaflet(leaflet);
+
+      const customIcon = leaflet.divIcon({
+        html: ReactDOMServer.renderToString(
+          <div className="text-[#bd0909] text-3xl drop-shadow-lg relative">
+            <div className="absolute w-4 h-4 right-4 top-3 bg-white -z-1">
+            </div>
+            <HiLocationMarker size={50}/>
+          </div>
+        ),
+        className: '',
+        iconSize: [50, 50],
+        iconAnchor: [25, 35],
+        popupAnchor: [0, -30],
+      });
+
+      setIcon(customIcon);
+    });
+  }, []);
+  
+  if (!isClient) return null;
   return (
-    <div className="bg-[#2f2f48] p-6 rounded-2xl shadow-md">
-      <h2 className="text-[#c8de67] text-xl font-semibold mb-4">Skill Demand by Location</h2>
-      <ResponsiveContainer width="100%" height={400}>
-        <BarChart
-          data={barData}
-          margin={{ top: 30, right: 20, left: 0, bottom: 10 }}
-          barCategoryGap="20%"
-        >
-          <CartesianGrid stroke="#2A2A3B" strokeDasharray="3 3" />
-          <XAxis
-            dataKey="location"
-            stroke="#A0AEC0"
-            tick={{ fontSize: 13, fill: '#E2E8F0' }}
-            axisLine={{ stroke: '#4A5568' }}
-            tickLine={false}
-          />
-          <YAxis
-            stroke="#A0AEC0"
-            tick={{ fontSize: 13, fill: '#E2E8F0' }}
-            axisLine={{ stroke: '#4A5568' }}
-            tickLine={false}
-          />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: '#23233C',
-              border: '1px solid #4A5568',
-              borderRadius: 10,
-              color: '#F7FAFC',
-              fontSize: 13
-            }}
-            labelStyle={{ color: '#C8DE67', fontWeight: 600 }}
-            itemStyle={{ color: '#FFFFFF' }}
-            cursor={{fill: '#2A2A3B'}}
-          />
-          <Legend
-            iconType="circle"
-            wrapperStyle={{
-              color: '#CBD5E0',
-              fontSize: 13,
-              paddingTop: 10
-            }}
-          />
-          {skillKeys.map((skill: string) => (
-            <Bar
-              key={skill}
-              dataKey={skill}
-              fill={getColorForSkill(skill)}
-              radius={[8, 8, 0, 0]}
-              barSize={24}
-              
-            />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
-
+    <div>
+      <style>
+        {`
+          .leaflet-popup-tip{
+            background:#2f2f48f0;
+          }
+          .leaflet-popup-content-wrapper{
+            background-color:#2f2f48f0;
+          }
+          .leaflet-popup-content{
+            margin: 0;
+          }
+          .leaflet-container a.leaflet-popup-close-button{
+            color:#fff;
+          }
+          .leaflet-container a.leaflet-popup-close-button:hover{
+            color:#fff;
+          }
+        `}
+      </style>
+      <h2 className="text-[#C8DE67] text-2xl md:text-3xl font-bold mb-6 tracking-tight">
+        🌍 Skill Demand by Location
+      </h2>
+      <MapContainer
+        center={[20, 0]}
+        zoom={2}
+        scrollWheelZoom={false}
+        style={{ height: '400px', width: '100%' }}
+      >
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; OpenStreetMap contributors'
+        />
+        {data.map(({ skill, demandByLocation }) =>
+          demandByLocation.map(({ location, demand, coords }) => (
+            <Marker key={`${skill}-${location}`} position={coords} icon={icon}>
+              <Popup>
+                <div className="text-white p-3 rounded-xl shadow-md text-sm leading-relaxed">
+                  <div className="font-semibold text-[#C8DE67] mb-1">{skill}</div>
+                  <div className="text-gray-300">
+                    <span className="font-medium text-white">Location:</span> {location}
+                  </div>
+                  <div className="text-gray-300">
+                    <span className="font-medium text-white">Demand:</span> {demand}
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          ))
+        )}
+      </MapContainer>
     </div>
   );
 };
@@ -477,21 +513,28 @@ interface SalaryHistogramProps {
 
 const salaryDataByLevel: Record<SalaryHistogramProps["experienceLevel"], SalaryData[]> = {
   Junior: [
-    { range: "$20k-$30k", count: 8 },
-    { range: "$30k-$40k", count: 14 },
-    { range: "$40k-$50k", count: 6 },
+    { range: "$20k-$25k", count: 5 },
+    { range: "$25k-$30k", count: 8 },
+    { range: "$30k-$35k", count: 10 },
+    { range: "$35k-$40k", count: 6 },
+    { range: "$40k-$45k", count: 4 },
   ],
   Mid: [
-    { range: "$40k-$50k", count: 5 },
-    { range: "$50k-$70k", count: 10 },
-    { range: "$70k-$90k", count: 7 },
+    { range: "$45k-$55k", count: 4 },
+    { range: "$55k-$65k", count: 8 },
+    { range: "$65k-$75k", count: 9 },
+    { range: "$75k-$85k", count: 6 },
+    { range: "$85k-$95k", count: 3 },
   ],
   Senior: [
-    { range: "$80k-$100k", count: 4 },
-    { range: "$100k-$120k", count: 8 },
-    { range: "$120k-$150k", count: 6 },
+    { range: "$95k-$110k", count: 3 },
+    { range: "$110k-$125k", count: 6 },
+    { range: "$125k-$140k", count: 5 },
+    { range: "$140k-$160k", count: 4 },
+    { range: "$160k-$180k", count: 2 },
   ],
 };
+
 
 const SalaryHistogram:React.FC<SalaryHistogramProps> = ({ experienceLevel }) => {
   const data = salaryDataByLevel[experienceLevel];
@@ -513,6 +556,7 @@ const SalaryHistogram:React.FC<SalaryHistogramProps> = ({ experienceLevel }) => 
             }}
             labelStyle={{ color: "#C8DE67" }}
             itemStyle={{ color: "#fff" }}
+            cursor={{fill: '#2A2A3B'}}
           />
           <Bar dataKey="count" fill="#6366F1" radius={[6, 6, 0, 0]} barSize={40} />
         </BarChart>
@@ -523,7 +567,7 @@ const SalaryHistogram:React.FC<SalaryHistogramProps> = ({ experienceLevel }) => 
 
 export default function Home() {
   const [role, setRole] = useState<string>('Frontend Developer');
-  const [level, setLevel] = useState<string>('Mid');
+  const [level, setLevel] = useState<string>('Mid');  
   return (
     <div id="root">
       <style>
@@ -569,11 +613,11 @@ export default function Home() {
               </div>
 
               <div className="flex w-full gap-6 justify-between my-16">
-                <div className="w-1/2">
+                <div className="w-1/2 bg-[#2f2f48] p-6 rounded-2xl shadow-md">
                   <SkillDemandOverTimeChart />
                 </div>
-                <div className="w-1/2">
-                  <SkillDemandByLocationChart data={skillDemandByLocation} />
+                <div className="w-1/2 bg-[#2f2f48] p-6 rounded-2xl shadow-md">
+                  <SkillDemandMap data={skillDemandByLocation} />
                 </div>
               </div>
               <div className="mb-10 px-6 py-10 bg-[#2f2f48] rounded-2xl shadow-md text-white flex flex-col-reverse md:flex-row items-center gap-8">
@@ -583,7 +627,7 @@ export default function Home() {
                     Use AI to evaluate your CV for top roles across industries. Improve your visibility with personalized recommendations.
                   </p>
                   <button className="bg-[#C8DE67] hover:bg-[#B2CC5B] text-[#1E1E2F] font-semibold py-2 px-6 rounded-lg transition-all duration-200"
-                    onClick={()=>{'Upload your CV'}}
+                    onClick={()=>{alert('Upload your CV')}}
                   >
                     Analyse Now
                   </button>
